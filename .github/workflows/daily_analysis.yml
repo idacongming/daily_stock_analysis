@@ -49,8 +49,12 @@ jobs:
       
       - name: 安装依赖
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          for attempt in 1 2 3; do
+            echo "=== 第 $attempt 次尝试安装依赖 ==="
+            pip install --upgrade pip && pip install --retries 5 --timeout 120 -r requirements.txt && break
+            echo "⚠️ 安装失败，等待 10 秒后重试..."
+            sleep 10
+          done
       
       - name: 创建必要目录
         run: |
