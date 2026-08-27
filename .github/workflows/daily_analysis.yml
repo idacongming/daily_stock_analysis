@@ -298,3 +298,38 @@ jobs:
             echo "📜 最近日志（最后 30 行）:"
             tail -30 logs/stock_analysis_*.log 2>/dev/null || echo "无日志"
           fi
+  # ==========================================
+  # 保活任务：防止仓库 60 天无活动导致定时任务被 GitHub 自动禁用
+  # GitHub 判定"活动"只认 push/commit 等操作，schedule 定时运行不算活动
+  # 所以即使分析任务每天正常跑，只要 60 天没 push 过代码，定时任务仍会被禁用
+  # 策略：超过 30 天无新提交时才 push 一个空 commit 重置计时器，避免提交历史刷屏
+  # ==========================================
+  keep-alive:
+    runs-on: ubuntu-latest
+    # 只在定时触发时执行（手动触发时不需要保活）
+    if: github.event_name == 'schedule'
+    permissions:
+      contents: write   # 允许 push 空 commit
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: 检查上次提交时间，超 30 天则保活
+        run: |
+          LAST_COMMIT=$(git log -1 --format=%cI)
+          LAST_TS=$(date -d "$LAST_COMMIT" +%s)
+          NOW_TS=$(date +%s)
+          AGE_DAYS=$(( (NOW_TS - LAST_TS) / 86400 ))
+          echo "上次提交: $LAST_COMMIT（距今 ${AGE_DAYS} 天）"
+
+          if [ "$AGE_DAYS" -ge 30 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keep-alive $(date -u +%Y-%m-%d)"
+            git push
+            echo "✅ 已推送保活空提交，60 天计时器已重置"
+          else
+            echo "⏭️ 仓库近期有活动，本次无需保活"
+          fi
